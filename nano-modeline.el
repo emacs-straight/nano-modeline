@@ -60,7 +60,7 @@
   :group 'convenience)
 
 (defgroup nano-modeline nil
-  "N Λ N O modeline"
+  "N Λ N O Modeline"
   :group 'nano)
 
 (defgroup nano-modeline-active nil
@@ -359,6 +359,16 @@ Modeline is composed as:
                                  ")")
                          ""))
 
+
+;; ---------------------------------------------------------------------
+(defun nano-modeline-enlarge-ispell-choices-buffer (buffer)
+  (when (string= (buffer-name buffer) "*Choices*")
+    (with-current-buffer buffer
+      ;; (enlarge-window +2)
+      (setq-local header-line-format nil)
+      (setq-local mode-line-format nil))))
+
+
 ;; ---------------------------------------------------------------------
 (defun nano-modeline-org-agenda-mode-p ()
   (derived-mode-p 'org-agenda-mode))
@@ -400,7 +410,7 @@ Modeline is composed as:
 (defun nano-modeline-mu4e-server-props ()
   "Encapsulates the call to the variable mu4e-/~server-props
 depending on the version of mu4e."
-  (if (string> mu4e-mu-version "1.6.5")
+  (if (string> mu4e-mu-version "1.6.8")
       mu4e--server-props
     mu4e~server-props))
 
@@ -729,6 +739,10 @@ depending on the version of mu4e."
     (add-hook 'calendar-initial-window-hook
               #'nano-modeline-calendar-setup-header))
 
+  (with-eval-after-load 'ispell
+    (advice-add #'ispell-display-buffer :after
+                #'nano-modeline-enlarge-ispell-choices-buffer))
+
   (with-eval-after-load 'org-clock
     (add-hook 'org-clock-out-hook #'nano-modeline-org-clock-out))
   
@@ -786,7 +800,8 @@ depending on the version of mu4e."
                #'nano-modeline-org-clock-out)
   (remove-hook 'post-command-hook
                #'nano-modeline--update-selected-window)
-  (advice-remove 'mu4e~header-line-format #'nano-modeline)
+  (advice-remove #'mu4e~header-line-format #'nano-modeline)
+  (advice-remove #'ispell-display-buffer #'nano-modeline-enlarge-ispell-choices-buffer)
 
   (setq         mode-line-format nano-modeline--saved-mode-line-format)
   (setq-default mode-line-format nano-modeline--saved-mode-line-format)
@@ -797,7 +812,7 @@ depending on the version of mu4e."
 ;;;###autoload
 (define-minor-mode nano-modeline-mode
   "Toggle nano-modeline minor mode"
-  :group 'nano
+  :group 'nano-modeline
   :global t
   :init-value nil
 
