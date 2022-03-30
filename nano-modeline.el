@@ -4,7 +4,7 @@
 
 ;; Maintainer: Nicolas P. Rougier <Nicolas.Rougier@inria.fr>
 ;; URL: https://github.com/rougier/nano-modeline
-;; Version: 0.5
+;; Version: 0.6
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: convenience, mode-line, header-line
 
@@ -34,6 +34,7 @@
 ;; There are two sets of faces (for active and inactive modelines) that
 ;; can be customized (M-x: customize-group + nano-modeline)
 ;;
+;; - nano-modeline-active           / nano-modeline-inactive
 ;; - nano-modeline-active-name      / nano-modeline-inactive-name
 ;; - nano-modeline-active-primary   / nano-modeline-inactive-primary
 ;; - nano-modeline-active-secondary / nano-modeline-inactive-secondary
@@ -46,6 +47,12 @@
 ;; M-x: nano-modeline-mode
 ;;
 ;;; NEWS:
+;;
+;; Version 0.6
+;; - Spaces have face that enforce active/inactive
+;; - Better marker for dedicated windows
+;; - Internal reordering of modes, most frequent first
+;;    (educated guess, might vary greatly with users)
 ;;
 ;; Version 0.5.1
 ;; - Bug fix (make-obsolete-variable)
@@ -186,6 +193,18 @@ Negative is downwards."
 
 (defcustom nano-modeline-mode-formats
   '(;; with :mode-p first
+    (prog-mode              :mode-p nano-modeline-prog-mode-p
+                            :format nano-modeline-prog-mode)
+    (mu4e-dashboard-mode    :mode-p nano-modeline-mu4e-dashboard-mode-p
+                            :format nano-modeline-mu4e-dashboard-mode)
+;;    (text-mode              :mode-p nano-modeline-text-mode-p
+;;                            :format nano-modeline-text-mode)
+    (messages-mode          :mode-p nano-modeline-messages-mode-p
+                            :format nano-modeline-messages-mode)
+    (term-mode              :mode-p nano-modeline-term-mode-p
+                            :format nano-modeline-term-mode)
+    (vterm-mode             :mode-p nano-modeline-vterm-mode-p
+                            :format nano-modeline-term-mode)
     (buffer-menu-mode       :mode-p nano-modeline-buffer-menu-mode-p
                             :format nano-modeline-buffer-menu-mode
                             :on-activate nano-modeline-buffer-menu-activate
@@ -213,12 +232,8 @@ Negative is downwards."
                             :format nano-modeline-info-mode
                             :on-activate nano-modeline-info-activate
                             :on-inactivate nano-modeline-info-inactivate)
-    (messages-mode          :mode-p nano-modeline-messages-mode-p
-                            :format nano-modeline-messages-mode)
     (mu4e-compose-mode      :mode-p nano-modeline-mu4e-compose-mode-p
                             :format nano-modeline-mu4e-compose-mode)
-    (mu4e-dashboard-mode    :mode-p nano-modeline-mu4e-dashboard-mode-p
-                            :format nano-modeline-mu4e-dashboard-mode)
     (mu4e-headers-mode      :mode-p nano-modeline-mu4e-headers-mode-p
                             :format nano-modeline-mu4e-headers-mode)
     (mu4e-loading-mode      :mode-p nano-modeline-mu4e-loading-mode-p
@@ -241,14 +256,6 @@ Negative is downwards."
                             :on-inactivate nano-modeline-org-clock-inactivate)
     (pdf-view-mode          :mode-p nano-modeline-pdf-view-mode-p
                             :format nano-modeline-pdf-view-mode)
-    (prog-mode              :mode-p nano-modeline-prog-mode-p
-                            :format nano-modeline-prog-mode)
-    (term-mode              :mode-p nano-modeline-term-mode-p
-                            :format nano-modeline-term-mode)
-    (text-mode              :mode-p nano-modeline-text-mode-p
-                            :format nano-modeline-text-mode)
-    (vterm-mode             :mode-p nano-modeline-vterm-mode-p
-                            :format nano-modeline-term-mode)
 
     ;; hooks only last
     (ein-notebook-mode      :on-activate nano-modeline-ein-notebook-activate
@@ -293,13 +300,15 @@ KEY mode name, for reference only. Easier to do lookups and/or replacements.
   "User supplied mode to be evaluated for modeline."
   :type '(choice (const nil) function)
   :group 'nano-modeline)
-(make-obsolete-variable nano-modeline-user-mode "Add to `nano-modeline-mode-formats' instead" "0.5")
+(make-obsolete-variable nano-modeline-user-mode
+                        "Add to `nano-modeline-mode-formats' instead" "0.5")
 
 (defcustom nano-modeline-user-mode-p nil
   "Function to indicate whether the user supplied mode should be used instead f the default one. This function will be dynamically called and can return t or nil depending on some user conditions. If the provied function always return t, this fully overrides the nano-modeline."
   :type '(choice (const nil) function)
   :group 'nano-modeline)
-(make-obsolete-variable nano-modeline-user-mode-p "Add to `nano-modeline-mode-formats' instead" "0.5")
+(make-obsolete-variable nano-modeline-user-mode-p
+                        "Add to `nano-modeline-mode-formats' instead" "0.5")
 
 (defun nano-modeline-truncate (str size &optional ellipsis)
   "If STR is longer than SIZE, truncate it and add ELLIPSIS."
@@ -382,24 +391,33 @@ KEY mode name, for reference only. Easier to do lookups and/or replacements.
                                  'nano-modeline-inactive))))
          (left (concat (if (stringp prefix)
                            (concat
-                            (propertize (if (window-dedicated-p) "•" " ")
+                            (propertize (if (window-dedicated-p) "[" " ")
                                         'face `(:inherit ,prefix-face))
-                            (propertize (format "%s" prefix)
-                                        'face `(:inherit ,prefix-face))
-                            (propertize " " 'face `(:inherit ,prefix-face))))
-                         (propertize " " 'display `(raise ,nano-modeline-space-top))
+                                (propertize (format "%s" prefix)
+                                            'face `(:inherit ,prefix-face))
+                            (propertize (if (window-dedicated-p) "]" " ")
+                                        'face `(:inherit ,prefix-face))))
+                       (propertize " "  'face (if active 'nano-modeline-active
+                                                'nano-modeline-inactive)
+                                   'display `(raise ,nano-modeline-space-top))
                        (propertize name 'face (if active 'nano-modeline-active-name
                                                 'nano-modeline-inactive-name))
-                       (if (length name) " ")
+                       (if (length name)
+                           (propertize " " 'face (if active 'nano-modeline-active
+                                                   'nano-modeline-inactive)))
                        (propertize primary 'face (if active 'nano-modeline-active-primary
                                                    'nano-modeline-inactive-primary))))
          (right (concat (propertize secondary 'face (if active 'nano-modeline-active-secondary
                                                       'nano-modeline-inactive-secondary))
-                        (propertize " " 'display `(raise ,nano-modeline-space-bottom))))
+                        (propertize " "  'face (if active 'nano-modeline-active
+                                                 'nano-modeline-inactive)
+                                         'display `(raise ,nano-modeline-space-bottom))))
 	 (right-len (length (format-mode-line right))))
     (concat
      left 
-     (propertize " " 'display `(space :align-to (- right ,(- right-len 0))))
+     (propertize " "  'face (if active 'nano-modeline-active
+                              'nano-modeline-inactive)
+                      'display `(space :align-to (- right ,(- right-len 0))))
      right)))
 
 ;; ---------------------------------------------------------------------
@@ -934,6 +952,7 @@ depending on the version of mu4e."
                           buffer-name
                           (if branch (concat "(" branch ")") "")
                           position)))
+
 
 ;; ---------------------------------------------------------------------
 (defun nano-modeline-face-clear (face)
