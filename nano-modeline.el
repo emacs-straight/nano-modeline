@@ -223,9 +223,6 @@ This is useful (aesthetically) if the face of prefix uses a different background
     (prog-mode              :mode-p nano-modeline-prog-mode-p
                             :format nano-modeline-prog-mode
                             :icon "") ;; nerd-font / oct-file-code
-    (mu4e-dashboard-mode    :mode-p nano-modeline-mu4e-dashboard-mode-p
-                            :format nano-modeline-mu4e-dashboard-mode
-                            :icon "") ;; nerd-font / oct-inbox
     (mu4e-compose-mode      :mode-p nano-modeline-mu4e-compose-mode-p
                             :format nano-modeline-mu4e-compose-mode
                             :icon "") ;; nerd-font / oct-pencil
@@ -241,6 +238,9 @@ This is useful (aesthetically) if the face of prefix uses a different background
     (mu4e-view-mode         :mode-p nano-modeline-mu4e-view-mode-p
                             :format nano-modeline-mu4e-view-mode
                             :icon "") ;; nerd-font / oct-comment
+    (mu4e-dashboard-mode    :mode-p nano-modeline-mu4e-dashboard-mode-p
+                            :format nano-modeline-mu4e-dashboard-mode
+                            :icon "") ;; nerd-font / oct-inbox
     (messages-mode          :mode-p nano-modeline-messages-mode-p
                             :format nano-modeline-messages-mode
                             :icon "") ;; nerd-font / oct-comment
@@ -888,7 +888,7 @@ depending on the version of mu4e."
     (mode-name   (nano-modeline-mode-name))
     (branch      (nano-modeline-vc-branch))
     (page-number (concat
-              (number-to-string (doc-view-current-page)) "/"
+                  (number-to-string (image-mode-window-get 'page)) "/"
               (or (ignore-errors
                 (number-to-string (doc-view-last-page-number)))
               "???"))))
