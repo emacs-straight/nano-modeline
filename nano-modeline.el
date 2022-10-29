@@ -4,7 +4,7 @@
 
 ;; Maintainer: Nicolas P. Rougier <Nicolas.Rougier@inria.fr>
 ;; URL: https://github.com/rougier/nano-modeline
-;; Version: 0.7.1
+;; Version: 0.7.2
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: convenience, mode-line, header-line
 
@@ -47,6 +47,11 @@
 ;; M-x: nano-modeline-mode
 ;;
 ;;; NEWS:
+;;
+;; Version 0.7.2
+;; - Fix a bug in info mode (breadcrumbs)
+;; - Fix mu header mode for version 1.8
+;; - Put back padding (for default style)
 ;;
 ;; Version 0.7.1
 ;; - Fix a bug with mu4e-dashboard
@@ -142,7 +147,7 @@ Negative is downwards."
                  (const :tag "Icon" icon))
   :group 'nano-modeline)
 
-(defcustom nano-modeline-prefix-padding nil
+(defcustom nano-modeline-prefix-padding t
   "Wheter to add a space after prefix part.
 
 This is useful (aesthetically) if the face of prefix uses a different background color than the rest of the modeline."
@@ -797,7 +802,7 @@ depending on the version of mu4e."
   (derived-mode-p 'mu4e-headers-mode))
 
 (defun nano-modeline-mu4e-headers-mode ()
-  (let ((mu4e-modeline-max-width 80))
+  (let ((mu4e-modeline-max-width 120))
     (nano-modeline-render (plist-get (cdr (assoc 'mu4e-headers-mode nano-modeline-mode-formats)) :icon)
                           "Search:"
                           (or (nano-modeline-mu4e-quote
