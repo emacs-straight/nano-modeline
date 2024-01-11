@@ -61,6 +61,9 @@
 ;;; NEWS:
 ;;
 ;;
+;; Version 
+;; - Minor bugfix with org-capture
+;;
 ;; Version 1.0.1
 ;; - Minor bugfix
 ;;
@@ -138,6 +141,12 @@
   
   :type '(choice (const :tag "Top"    nano-modeline-header)
                  (const :tag "Bottom" nano-modeline-footer))
+  :group 'nano-modeline)
+
+(defcustom nano-modeline-window-dedicated-symbol '("● " . "")
+  "Pairs of strings showing a window is dedicated or not dedicated"
+  :type '(cons (string :tag "Window is dedicated" )
+               (string :tag "Window is not dedicated"))
   :group 'nano-modeline)
 
 (defface nano-modeline-active
@@ -249,6 +258,10 @@ make it inherit the base face."
          (face (reverse face)))
     `(:inherit ,face)))
 
+
+(defvar-local nano-modeline-left-fringe-width 0)
+(defvar-local nano-modeline-right-fringe-width 0)
+
 (defun nano-modeline--make (left right face-prefix)
   "Build a dynamic mode/header line made of LEFT and RIGHT part,
 using the given FACE-PREFIX as the default."
@@ -268,25 +281,71 @@ using the given FACE-PREFIX as the default."
                      (apply (car element) (cdr element))))
                    ',right))
            (width (window-width))
-           (fringe (if fringes-outside-margins 0.0 -1.0))
+           (outside fringes-outside-margins)
+           (left-fringe (if outside -1.0 0.0))
+           (left-margin (if outside 0.0 1.0))
+           (right-fringe (if outside -1.0 0.0))
+           (right-margin (if outside -1.0 0.0))
            (left-max-size (- width (length right) 2))
            (left (if (> (length left) left-max-size)
                      (concat (truncate-string-to-width left left-max-size)
                              (propertize "…" 'face `(:inherit  ,nano-modeline-base-face)))
                    left)))
-      (concat (propertize " "
-                'display `(space :align-to (+ left
-                                              (,fringe . left-fringe)
-                                              ( 0.0 . left-margin))))
-              left
-              (propertize " "
-                'face `(:inherit ,nano-modeline-base-face)
-                'display `(space :align-to (- right
-                                              (,fringe . right-fringe)
-                                              ( 0.0 . right-margin)
-                                              ,(length right))))
-              right))))
+      (concat (propertize " " 
+                        'display `(space :align-to (+ left-margin
+                                                      (,left-fringe . left-fringe)
+                                                      (,left-margin . left-margin))))
+            (propertize " " 'face 'fringe
+                        'display '(space :width (nano-modeline-left-fringe-width)))
+            left              
+            (propertize " "
+                        'face `(:inherit ,nano-modeline-base-face )
+                        'display `(space :align-to (- right-margin
+                                                      (,right-fringe . right-fringe)
+                                                      (,right-margin . right-margin)
+                                                      (nano-modeline-right-fringe-width)
+                                                      ,(length right))))
+            right
+            (propertize " " 'face 'fringe
+                        'display '(space :width (nano-modeline-right-fringe-width)))))))
 
+;; (defun nano-modeline--make (left right face-prefix)
+;;   "Build a dynamic mode/header line made of LEFT and RIGHT part,
+;; using the given FACE-PREFIX as the default."
+  
+;;   `(:eval
+;;     (let* ((nano-modeline-base-face (nano-modeline--base-face ',face-prefix))
+;;            (left (mapconcat
+;;                   (lambda (element)
+;;                     (if (stringp element)
+;;                         (propertize element 'face nano-modeline-base-face)
+;;                       (apply (car element) (cdr element))))
+;;                   ',left))
+;;            (right (mapconcat
+;;                    (lambda (element)
+;;                     (if (stringp element)
+;;                         (propertize element 'face nano-modeline-base-face)
+;;                      (apply (car element) (cdr element))))
+;;                    ',right))
+;;            (width (window-width))
+;;            (fringe (if fringes-outside-margins 0.0 -1.0))
+;;            (left-max-size (- width (length right) 2))
+;;            (left (if (> (length left) left-max-size)
+;;                      (concat (truncate-string-to-width left left-max-size)
+;;                              (propertize "…" 'face `(:inherit  ,nano-modeline-base-face)))
+;;                    left)))
+;;       (concat (propertize " "
+;;                 'display `(space :align-to (+ left-margin
+;;                                               (,fringe . left-fringe)
+;;                                               ( 0.0 . left-margin))))
+;;               left              
+;;               (propertize " "
+;;                 'face `(:inherit ,nano-modeline-base-face)
+;;                 'display `(space :align-to (- right
+;;                                               (,fringe . right-fringe)
+;;                                               ( 0.0 . right-margin)
+;;                                               ,(length right))))
+;;               right))))
 
 
 (defun nano-modeline--stroke-color (face)
@@ -547,10 +606,12 @@ delay needs to be set to 0."
      (format-mode-line "(%l lines)")
      'face (nano-modeline-face 'primary))))
 
-(defun nano-modeline-window-dedicated (&optional symbol)
+(defun nano-modeline-window-dedicated (&optional dedicated not-dedicated)
   "Pin symbol when window is dedicated"
   
-  (propertize (if (window-dedicated-p) (or symbol " ") "")
+  (propertize (if (window-dedicated-p)
+                  (or dedicated (car nano-modeline-window-dedicated-symbol))
+                (or not-dedicated (cdr nano-modeline-window-dedicated-symbol)))
               'face (nano-modeline-face 'secondary)))
 
 (defun nano-modeline-git-info (&optional symbol)
@@ -720,9 +781,10 @@ delay needs to be set to 0."
 (defun nano-modeline-eat-shell-mode ()
   "Eat shell mode"
   
-  (propertize (if eat--char-mode
-                  "(char mode)"
-                "(line mode)")
+  (propertize (cond (eat--semi-char-mode "(semi-char mode)")
+                    (eat--char-mode "(char mode)")
+                    (eat--line-mode "(line mode)")
+                    (t "(unknown mode)"))
                'face (nano-modeline-face 'primary)))
 
 (defun nano-modeline-default-directory (&optional max-length)
