@@ -121,6 +121,7 @@
 ;;
 
 ;;; Code:
+(require 'cl-lib)
 
 (defgroup nano nil
   "N Λ N O"
@@ -380,48 +381,15 @@ using the given FACE-PREFIX as the default."
                         :foreground ,foreground
                         :background ,background))))
 
-(defvar nano-modeline--cached-svg-buttons nil
-  "List of cached SVG buttons indexed with (label . face)")
-(setq nano-modeline--cached-svg-buttons nil)
-
 (defun nano-modeline--make-svg-button (label face)
   "Make a svg button from LABEL and FACE"
     
   (require 'svg-lib)
-  (let* ((key (cons label face))
-         (cached (assoc key nano-modeline--cached-svg-buttons))
-         (foreground (face-foreground face nil 'default))
-         (background (face-background face nil 'default))
-         (weight (face-attribute face ':weight nil 'default))
-         (stroke (nano-modeline--stroke-width face))
-         (family (face-attribute face ':family nil 'default))
-         (button (cond (cached (cdr cached))
-                       ((string-match "\\([a-zA-Z0-9-]+\\):\\([a-zA-Z0-9]+\\)" label)
-                        (propertize "   "
-                                   'display (svg-lib-icon (match-string 1 label) nil
-                                                          :foreground foreground
-                                                          :background background
-                                                          :font-weight weight
-                                                          :font-family family
-                                                          :stroke stroke
-                                                          :height 1.
-                                                          :padding 1
-                                                          :margin 0
-                                                          :collection (match-string 2 label))))
-                       (t
-                        (propertize (concat label " ")
-                                    'display (svg-lib-tag label nil
-                                                          :foreground foreground
-                                                          :background background
-                                                          :font-weight weight
-                                                          :font-family family
-                                                          :stroke stroke
-                                                          :padding 1
-                                                          :margin 0))))))
-    (unless cached
-      (add-to-list 'nano-modeline--cached-svg-buttons (cons key button)))
-    button))
-
+  (let* ((stroke (nano-modeline--stroke-width face))
+         (tag (svg-lib-tag label face :stroke stroke))
+         (size (image-size tag))
+         (width (ceiling (car size))))
+    (propertize (make-string width ? ) 'display tag)))        
 
 (defun nano-modeline--make-button (button &optional use-svg)
   "Make a button from a BUTTON decription. When USE-SVG is t and
@@ -624,6 +592,15 @@ delay needs to be set to 0."
         (propertize (format "(%s%s, %s)" (or symbol " ") branch state)
                     'face (nano-modeline-face 'primary)))))
 
+(defun nano-modeline-primary-info (text)
+  "Information using primary face"
+  
+  (propertize text 'face (nano-modeline-face 'primary)))
+
+(defun nano-modeline-secondary-info (text)
+  "Information using primary face"
+  
+  (propertize text 'face (nano-modeline-face 'secondary)))
 
 (defun nano-modeline-mu4e-search-filter ()
   "Mu4e current search"
@@ -645,13 +622,47 @@ delay needs to be set to 0."
          (name (if context (mu4e-context-name context) "NONE")))
     (upcase name)))
 
-(defun nano-modeline-mu4e-message-from ()
-  "Mu4e current message sender"
+(defun nano-modeline-mu4e-message-to ()
+  "Return the recipients of a message, separating me from others"
   
   (with-current-buffer "*mu4e-headers*"
-    (let ((msg (mu4e-message-at-point)))
-      (mu4e~headers-contact-str (mu4e-message-field msg :from)))))
-                         
+    (let* ((msg (mu4e-message-at-point))
+           (list (memq 'list (plist-get msg :flags)))
+           (cc (mapcar (lambda (item)
+                         (downcase (plist-get item :email)))
+                       (plist-get msg :cc)))
+           (to (mapcar (lambda (item)
+                         (downcase (plist-get item :email)))
+                       (plist-get msg :to)))
+           (to-names (mapcar (lambda (item)
+                               (capitalize (downcase (plist-get item :name))))
+                             (plist-get msg :to)))
+           (all (cl-union to cc))  
+           (me (mapcar #'downcase (mu4e-personal-addresses)))
+           (me (cl-intersection all me :test #'string-equal))
+           (others (cl-set-difference all me :test #'string-equal)))
+      (cond (list
+             (concat "to " (car to-names)))
+            ((= (length others) 0)
+             "to me")
+            ((and (> (length others) 0) (< (length others) (length all)))
+             (format "to me (+%d recipients)" (length others)))
+            ((and (= (length others) 1))
+             (format "to %s" (car to-names)))
+            (t
+             (format "to %s (+%d recipients)" (car to-names) (1- (length others))))))))
+
+(defun nano-modeline-mu4e-message-from ()
+  "Return the sender of the message that can be me or a name"
+  
+  (with-current-buffer "*mu4e-headers*"
+    (let* ((msg (mu4e-message-at-point))
+           (from (mu4e-message-field msg :from))
+           (from-name (capitalize (downcase (plist-get (car from) :name))))
+           (from-email (plist-get (car from) :email))
+           (me (mapcar #'downcase (mu4e-personal-addresses))))
+      (if (member from-email me) "Me"from-name))))
+
 (defun nano-modeline-mu4e-view-in-xwidget ()
   (interactive)
   (with-current-buffer "*mu4e-headers*"
@@ -684,7 +695,7 @@ delay needs to be set to 0."
   
   (let* ((msg (mu4e-message-at-point))
          (date (mu4e-message-field msg :date)))
-    (propertize (format-time-string " %d/%m " date)
+    (propertize (format-time-string "%d %b %Y at %H:%M" date)
                 'face (nano-modeline-face 'secondary))))
  
 (defun nano-modeline-pdf-page ()
@@ -902,31 +913,34 @@ delay needs to be set to 0."
              `((nano-modeline-buttons ,buttons t) " "
              (nano-modeline-window-dedicated)))))
 
+
 (defun nano-modeline-mu4e-message-mode ()
   "Nano line for mu4e message mode with several buttons for most
 common action"
 
-  (let ((buttons '(("archive:bootstrap" . (mu4e-view-mark-for-refile . "Archive message"))
-                   ("trash:bootstrap" . (mu4e-view-mark-for-trash . "Delete message"))
-                   ("file-richtext:bootstrap". (nano-modeline-mu4e-view-in-xwidget . "View message as HTML"))
-                   ("folder:bootstrap". (mu4e-headers-mark-for-move . "Move message"))
-                   ("tag:bootstrap". (mu4e-headers-mark-for-tag . "Tag message"))
-                   ("reply:bootstrap". (mu4e-compose-reply . "Reply to message"))
-                   ("forward:bootstrap". (mu4e-compose-forward . "Forward message")))))
+  (let ((buttons '(("[bootstrap:archive]" . (mu4e-view-mark-for-refile . "Archive message"))
+                   (":bootstrap:trash]" . (mu4e-view-mark-for-trash . "Delete message"))
+                   ("[bootstrap:file-richtext]". (nano-modeline-mu4e-view-in-xwidget . "View message as HTML"))
+                   ("[bootstrap:folder]". (mu4e-headers-mark-for-move . "Move message"))
+                   ("[bootstrap:tag]". (mu4e-headers-mark-for-tag . "Tag message"))
+                   ("[bootstrap:reply]". (mu4e-compose-reply . "Reply to message"))
+                   ("[bootstrap:forward]". (mu4e-compose-forward . "Forward message")))))
     (funcall nano-modeline-position
              `((nano-modeline-buffer-status "FROM") " "
-               (nano-modeline-buffer-name ,(nano-modeline-mu4e-message-from)))
-             `((nano-modeline-buttons ,buttons t) " "
+               (nano-modeline-buffer-name ,(nano-modeline-mu4e-message-from)) " "
+               (nano-modeline-primary-info ,(nano-modeline-mu4e-message-to)))
+             `((nano-modeline-mu4e-message-date) " "
+               ;; (nano-modeline-buttons ,buttons t) " "
                (nano-modeline-window-dedicated)))))
 
 (defun nano-modeline-mu4e-compose-mode ()
   "Nano line for mu4e compose mode"
 
-  (let ((buttons '(("download:bootstrap" . (save-buffer . "Save message"))
-                   ("paperclip:bootstrap" . (mml-attach-file . "Attach file"))
-                   ("lock:bootstrap" . (mml-secure-message-encrypt . "Encrypt message"))
-                   ("check:bootstrap" . (mml-secure-message-sign . "Sign message"))
-                   ("send:bootstrap" . (message-send-and-exit . "Send message")))))
+  (let ((buttons '(("[bootstrap:download]" . (save-buffer . "Save message"))
+                   ("[bootstrap:paperclip]" . (mml-attach-file . "Attach file"))
+                   ("[bootstrap:lock]" . (mml-secure-message-encrypt . "Encrypt message"))
+                   ("[bootstrap:check]" . (mml-secure-message-sign . "Sign message"))
+                   ("[bootstrap:send]" . (message-send-and-exit . "Send message")))))
     (funcall nano-modeline-position
              `((nano-modeline-buffer-status "DRAFT") " "
                (nano-modeline-buffer-name "Message"))
