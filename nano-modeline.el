@@ -61,8 +61,13 @@
 ;;; NEWS:
 ;;
 ;;
-;; Version 
+;; Version  1.1.0
 ;; - Minor bugfix with org-capture
+;; - Better mu4e message mode line
+;; - Fixed eat mode line
+;; - Better margin/fringe alignment
+;; - API change: button now take advantage of new svg-lib API
+;; - Fixed flat-button style
 ;;
 ;; Version 1.0.1
 ;; - Minor bugfix
@@ -144,7 +149,7 @@
                  (const :tag "Bottom" nano-modeline-footer))
   :group 'nano-modeline)
 
-(defcustom nano-modeline-window-dedicated-symbol '("● " . "")
+(defcustom nano-modeline-window-dedicated-symbol '(" " . "")
   "Pairs of strings showing a window is dedicated or not dedicated"
   :type '(cons (string :tag "Window is dedicated" )
                (string :tag "Window is not dedicated"))
@@ -171,6 +176,7 @@
   `((t :foreground ,(face-foreground 'default)
        :background ,(face-background 'default)
        :family "Roboto Mono"
+       :weight regular
        :box (:line-width 2
              :color ,(face-foreground 'default)
              :style flat-button)))
@@ -180,6 +186,7 @@
   `((t :foreground ,(face-foreground (if (facep 'nano-faded) 'nano-faded 'default))
        :background ,(face-background 'header-line nil t)
        :family "Roboto Mono"
+       :weight regular
        :box (:line-width 2
              :color ,(face-foreground 'default)
              :style flat-button)))
@@ -357,8 +364,8 @@ using the given FACE-PREFIX as the default."
     (cond ((stringp color) color)
           (t (face-foreground face nil 'default)))))
 
-(defun nano-modeline--make-text-button (label face)
-  "Make a text button from LABEL and FACE"
+(defun nano-modeline--make-text-button (label face state)
+  "Make a text button from LABEL and FACE for given STATE."
 
   (let* ((foreground (face-foreground face nil 'default))
          (background (face-background face nil 'default))
@@ -381,15 +388,30 @@ using the given FACE-PREFIX as the default."
                         :foreground ,foreground
                         :background ,background))))
 
-(defun nano-modeline--make-svg-button (label face)
-  "Make a svg button from LABEL and FACE"
+(defvar nano-modeline--svg-button-cache nil
+  "Cache for modeline buttons")
+
+(defun nano-modeline--make-svg-button (label face state)
+  "Make a svg button from LABEL and FACE for given STATE."
     
   (require 'svg-lib)
-  (let* ((stroke (nano-modeline--stroke-width face))
-         (tag (svg-lib-tag label face :stroke stroke))
-         (size (image-size tag))
-         (width (ceiling (car size))))
-    (propertize (make-string width ? ) 'display tag)))        
+  (unless nano-modeline--svg-button-cache
+     (setq nano-modeline--svg-button-cache (make-hash-table :test 'equal)))
+
+  (with-memoization
+      (gethash (list label (get-text-property 0 'svg-faces label)
+                     face state) nano-modeline--svg-button-cache)
+
+    (let* ((svg-faces (get-text-property 0 'svg-faces label))
+           (label-face (when svg-faces
+                         (alist-get state svg-faces)))
+           (stroke (nano-modeline--stroke-width face))
+           (tag (if (facep label-face)
+                    (svg-lib-tag label label-face :stroke stroke)
+                  (apply #'svg-lib-tag label face label-face))) ;; :stroke stroke)))
+           (size (image-size tag))
+           (width (ceiling (car size))))
+      (propertize (make-string width ? ) 'display tag))))
 
 (defun nano-modeline--make-button (button &optional use-svg)
   "Make a button from a BUTTON decription. When USE-SVG is t and
@@ -409,9 +431,13 @@ button."
                      ((eq state 'highlight) 'nano-modeline-button-highlight-face)
                      ((eq state 'inactive)  'nano-modeline-button-inactive-face)
                      (t                     'nano-modeline-button-active-face)))
+         (new-state (cond ((not active)          'inactive)
+                          ((eq state 'highlight) 'highlight)
+                          ((eq state 'inactive)  'inactive)
+                          (t                     'active)))
          (button (if (and use-svg (package-installed-p 'svg-lib))
-                     (nano-modeline--make-svg-button label face)
-                   (nano-modeline--make-text-button label face))))
+                     (nano-modeline--make-svg-button label face state)
+                   (nano-modeline--make-text-button label face state))))
     (propertize button
                 'pointer 'hand
                 'label label
@@ -635,7 +661,9 @@ delay needs to be set to 0."
                          (downcase (plist-get item :email)))
                        (plist-get msg :to)))
            (to-names (mapcar (lambda (item)
-                               (capitalize (downcase (plist-get item :name))))
+                               (if (stringp (plist-get item :name))
+                                   (capitalize (downcase (plist-get item :name)))
+                                 (plist-get item :email)))
                              (plist-get msg :to)))
            (all (cl-union to cc))  
            (me (mapcar #'downcase (mu4e-personal-addresses)))
@@ -657,12 +685,15 @@ delay needs to be set to 0."
   
   (with-current-buffer "*mu4e-headers*"
     (let* ((msg (mu4e-message-at-point))
+           (me (mapcar #'downcase (mu4e-personal-addresses)))
            (from (mu4e-message-field msg :from))
-           (from-name (capitalize (downcase (plist-get (car from) :name))))
-           (from-email (plist-get (car from) :email))
-           (me (mapcar #'downcase (mu4e-personal-addresses))))
-      (if (member from-email me) "Me"from-name))))
+           (from-name (plist-get (car from) :name))
+           (from-email (plist-get (car from) :email)))
+      (cond ((member from-email me) "Me")
+            ((stringp from-name)    (capitalize (downcase from-name)))
+            (t                      from-email)))))
 
+           
 (defun nano-modeline-mu4e-view-in-xwidget ()
   (interactive)
   (with-current-buffer "*mu4e-headers*"
@@ -845,10 +876,16 @@ delay needs to be set to 0."
 
 (defun nano-modeline-org-capture-description ()
   "Org capture descrioption"
-  
-  (propertize (format "(%s)"
-                      (substring-no-properties (org-capture-get :description)))
-              'face (nano-modeline-face 'primary)))
+
+  (let* ((header (nth 4 (org-heading-components)))
+         (header (or header ""))         
+         (header (org-link-display-format header))
+         (header (replace-regexp-in-string org-ts-regexp3 "" header))
+         (header (string-trim header))
+         (header (substring-no-properties header)))
+    (propertize (format "(%s)" header)
+                ;; (format "(%s)" (substring-no-properties (org-capture-get :description)))
+                'face (nano-modeline-face 'primary))))
 
 (defun nano-modeline-prog-mode (&optional default)
   "Nano line for prog mode. Can be made DEFAULT mode."
@@ -1004,8 +1041,13 @@ common action"
 (defun nano-modeline-org-capture-mode ()
   "Nano line for org capture mode"
 
-  (let ((buttons '(("CAPTURE" . (org-capture-finalize))
-                   ("CANCEL" . (org-capture-kill)))))  
+  (defun nano-modeline-org-capture-filename ()
+    (buffer-file-name (org-base-buffer (current-buffer))))
+  
+  (let* ((filename (nano-modeline-org-capture-filename))
+         (save (format "Save entry to %s" filename))
+         (buttons `(("SAVE" . (org-capture-finalize . ,save))
+                    ("CANCEL" . (org-capture-kill . "Delete entry")))))  
     (funcall nano-modeline-position
              `((nano-modeline-buffer-status "ORG") " "
                (nano-modeline-buffer-name "Capture") " "
